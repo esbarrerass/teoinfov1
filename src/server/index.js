@@ -1,0 +1,287 @@
+'use strict';
+
+require('dotenv').config();
+
+const express = require('express');
+const http = require('http');
+const { WebSocketServer } = require('ws');
+const cors = require('cors');
+const path = require('path');
+
+const { startReading, stopReading, getBuffer, setECGType } = require('./acquisition/serialReader');
+const { preprocess } = require('./signalProcessing/preprocessing');
+const { analyzeSignal } = require('./signalProcessing/fourierAnalysis');
+const { detectPeaks } = require('./signalProcessing/panTompkins');
+const { extractFeatures } = require('./signalProcessing/featureExtraction');
+const { beatEntropy } = require('./informationTheory/entropy');
+const { computeCapacity } = require('./informationTheory/channelCapacity');
+const { huffmanCode } = require('./informationTheory/sourceCoding');
+const { computeCRC8, verifyCRC8, introduceErrors } = require('./errorCorrection/crc8');
+const { encode: hammingEncode, decode: hammingDecode } = require('./errorCorrection/hamming');
+const { classify } = require('./classification/classifier');
+
+const PORT = parseInt(process.env.HTTP_PORT || '4000', 10);
+const FS = parseInt(process.env.SAMPLE_RATE || '360', 10);
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/ws' });
+
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+
+// ─── Estado compartido ────────────────────────────────────────────────────────
+const state = {
+  classificationHistory: [],
+  lastFeatures: null,
+  lastFourier: null,
+  ecgType: 'normal'
+};
+
+// ─── Pipeline de procesamiento ────────────────────────────────────────────────
+function runPipeline() {
+  const WINDOW = FS * 5; // ventana de 5 segundos
+  const raw = getBuffer(WINDOW);
+  if (raw.every(v => v === 0)) return null;
+
+  const { filtered } = preprocess(raw, FS);
+  const fourier = analyzeSignal(raw, filtered, FS);
+  const peaks = detectPeaks(filtered, FS);
+  const features = extractFeatures(peaks, FS);
+  const result = classify(features);
+
+  if (result.label && result.label !== 'Sin datos') {
+    state.classificationHistory.push(result.label);
+    if (state.classificationHistory.length > 200) state.classificationHistory.shift();
+  }
+
+  state.lastFeatures = features;
+  state.lastFourier = fourier;
+
+  const infoTheory = buildInfoTheory(features, fourier);
+  const errorStats = buildErrorStats();
+
+  return {
+    raw: raw.slice(-FS),         // último segundo de señal cruda
+    filtered: filtered.slice(-FS),
+    peaks: peaks.filter(p => p >= WINDOW - FS), // picos en la ventana visible
+    features,
+    classification: result,
+    fourier: {
+      frequencies: fourier.frequencies.slice(0, 80), // hasta ~55 Hz (suficiente para ECG)
+      rawSpectrum: fourier.rawSpectrum.slice(0, 80),
+      filteredSpectrum: fourier.filteredSpectrum.slice(0, 80),
+      snrRaw: fourier.snrRaw,
+      snrFiltered: fourier.snrFiltered
+    },
+    infoTheory,
+    errorStats
+  };
+}
+
+function buildInfoTheory(features, fourier) {
+  const entropy = beatEntropy(state.classificationHistory);
+  const capacity = computeCapacity(fourier.snrRaw, fourier.snrFiltered, FS);
+  const huffman = features && features.valid
+    ? huffmanCode(features.rrIntervals)
+    : { avgCodeLength: 0, entropy: 0, redundancy: 0, codes: {} };
+
+  return { entropy, capacity, huffman };
+}
+
+function buildErrorStats() {
+  // Demo de CRC y Hamming con datos simulados
+  const testData = [0xAB, 0xCD];
+  const crc = computeCRC8(testData);
+  const corruptedData = introduceErrors(testData, 0.05);
+  const crcValid = verifyCRC8(testData, crc);
+  const crcCorrupted = verifyCRC8(corruptedData, crc);
+
+  const hammingInput = [1, 0, 1, 1];
+  const encoded = hammingEncode(hammingInput);
+  const errorBit = [...encoded]; errorBit[2] ^= 1; // introducir 1 error
+  const decoded = hammingDecode(errorBit);
+
+  return {
+    crc: { value: crc, valid: crcValid, corruptedValid: crcCorrupted },
+    hamming: {
+      original: hammingInput,
+      encoded,
+      withError: errorBit,
+      decoded: decoded.data,
+      corrected: decoded.corrected,
+      syndrome: decoded.syndrome
+    }
+  };
+}
+
+// ─── WebSocket ────────────────────────────────────────────────────────────────
+wss.on('connection', (ws, req) => {
+  console.log(`[WS] Cliente conectado: ${req.socket.remoteAddress}`);
+
+  const interval = setInterval(() => {
+    if (ws.readyState !== ws.OPEN) return;
+    try {
+      const data = runPipeline();
+      if (data) ws.send(JSON.stringify(data));
+    } catch (err) {
+      console.error('[WS] Error en pipeline:', err.message);
+    }
+  }, 250); // 4 actualizaciones por segundo
+
+  ws.on('message', (msg) => {
+    try {
+      const { type, value } = JSON.parse(msg.toString());
+      if (type === 'setECGType') {
+        setECGType(value);
+        state.ecgType = value;
+        state.classificationHistory = [];
+        console.log(`[WS] Tipo de ECG cambiado a: ${value}`);
+      }
+    } catch (_) { /* ignorar mensajes malformados */ }
+  });
+
+  ws.on('close', () => {
+    clearInterval(interval);
+    console.log('[WS] Cliente desconectado');
+  });
+});
+
+// ─── REST API ─────────────────────────────────────────────────────────────────
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'ok',
+    demoMode: process.env.DEMO_MODE !== 'false',
+    ecgType: state.ecgType,
+    sampleRate: FS,
+    classificationHistory: state.classificationHistory.slice(-20)
+  });
+});
+
+app.get('/api/snapshot', (req, res) => {
+  const data = runPipeline();
+  if (!data) return res.status(503).json({ error: 'Buffer vacío — esperar unos segundos' });
+  res.json(data);
+});
+
+app.post('/api/ecg-type', (req, res) => {
+  const { type } = req.body;
+  const valid = ['normal', 'bradycardia', 'tachycardia', 'arrhythmia'];
+  if (!valid.includes(type)) return res.status(400).json({ error: `Tipo inválido. Opciones: ${valid.join(', ')}` });
+  setECGType(type);
+  state.ecgType = type;
+  state.classificationHistory = [];
+  res.json({ ok: true, type });
+});
+
+app.post('/api/error-correction/simulate', (req, res) => {
+  const { ber = 0.05 } = req.body;
+  const data = [0xAB, 0xCD, 0xEF];
+  const crc = computeCRC8(data);
+  const corrupted = introduceErrors(data, ber);
+  const valid = verifyCRC8(corrupted, crc);
+
+  const bits = [1, 0, 1, 1];
+  const encoded = hammingEncode(bits);
+  const corruptedBits = [...encoded];
+  if (Math.random() < ber * 8) corruptedBits[Math.floor(Math.random() * 7)] ^= 1;
+  const decoded = hammingDecode(corruptedBits);
+
+  res.json({ ber, crc: { original: data, corrupted, expectedCRC: crc, valid }, hamming: { bits, encoded, corruptedBits, decoded } });
+});
+
+// ─── Página de prueba sin React ───────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>ECG TeoInfo — Test</title>
+  <style>
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 2rem; }
+    h1 { color: #58a6ff; }
+    #status { color: #3fb950; }
+    #data { white-space: pre; font-size: 12px; max-height: 400px; overflow-y: auto; background: #161b22; padding: 1rem; border-radius: 6px; }
+    .label { font-size: 1.5rem; font-weight: bold; margin: 1rem 0; }
+    .normal { color: #3fb950; }
+    .abnormal { color: #f85149; }
+    canvas { background: #161b22; border-radius: 6px; margin: 1rem 0; }
+    button { background: #238636; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; margin: 0.25rem; }
+  </style>
+</head>
+<body>
+  <h1>ECG TeoInfo — Servidor de Prueba</h1>
+  <p id="status">Conectando...</p>
+  <div>
+    <button onclick="setType('normal')">Normal</button>
+    <button onclick="setType('bradycardia')">Bradicardia</button>
+    <button onclick="setType('tachycardia')">Taquicardia</button>
+    <button onclick="setType('arrhythmia')">Arritmia</button>
+  </div>
+  <div class="label" id="label">—</div>
+  <canvas id="ecg" width="800" height="150"></canvas>
+  <details><summary>Datos crudos (JSON)</summary><div id="data">Esperando datos...</div></details>
+
+  <script>
+    const ws = new WebSocket('ws://localhost:${PORT}/ws');
+    const ctx = document.getElementById('ecg').getContext('2d');
+    const W = 800, H = 150;
+
+    ws.onopen = () => document.getElementById('status').textContent = '✓ WebSocket conectado';
+    ws.onclose = () => document.getElementById('status').textContent = '✗ WebSocket desconectado';
+
+    ws.onmessage = (e) => {
+      const d = JSON.parse(e.data);
+      const lbl = document.getElementById('label');
+      lbl.textContent = d.classification?.label || '—';
+      lbl.className = 'label ' + (d.classification?.isAbnormal ? 'abnormal' : 'normal');
+
+      // Dibujar ECG
+      const sig = d.filtered || d.raw || [];
+      if (sig.length > 1) {
+        ctx.clearRect(0, 0, W, H);
+        ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const min = Math.min(...sig), max = Math.max(...sig), range = max - min || 1;
+        sig.forEach((v, i) => {
+          const x = (i / sig.length) * W;
+          const y = H - ((v - min) / range) * (H - 20) - 10;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+
+      document.getElementById('data').textContent = JSON.stringify({
+        fc: d.features?.fc,
+        sdnn: d.features?.sdnn,
+        rmssd: d.features?.rmssd,
+        snrRaw: d.fourier?.snrRaw,
+        snrFiltered: d.fourier?.snrFiltered,
+        entropy: d.infoTheory?.entropy?.entropy,
+        capacityFiltered: d.infoTheory?.capacity?.capacityFiltered
+      }, null, 2);
+    };
+
+    function setType(type) {
+      ws.send(JSON.stringify({ type: 'setECGType', value: type }));
+    }
+  </script>
+</body>
+</html>`);
+});
+
+// ─── Inicio ───────────────────────────────────────────────────────────────────
+startReading();
+
+server.listen(PORT, () => {
+  console.log(`\n🫀  Servidor ECG TeoInfo corriendo en http://localhost:${PORT}`);
+  console.log(`   WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`   Modo: ${process.env.DEMO_MODE !== 'false' ? 'DEMO (ECG sintético)' : 'Arduino'}`);
+  console.log(`   API: GET /api/status  |  GET /api/snapshot  |  POST /api/ecg-type\n`);
+});
+
+process.on('SIGINT', () => {
+  stopReading();
+  server.close(() => process.exit(0));
+});
