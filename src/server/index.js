@@ -41,7 +41,9 @@ const state = {
 
 // ─── Pipeline de procesamiento ────────────────────────────────────────────────
 function runPipeline() {
-  const WINDOW = FS * 5; // ventana de 5 segundos
+  // Ventana amplia (15 s) para tener suficientes latidos por cálculo de SDNN/RMSSD
+  // y evitar que un solo latido entrando/saliendo de la ventana dispare la clasificación.
+  const WINDOW = Math.min(FS * 15, 3600);
   const raw = getBuffer(WINDOW);
   if (raw.every(v => v === 0)) return null;
 

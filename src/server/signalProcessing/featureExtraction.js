@@ -66,6 +66,13 @@ function extractFeatures(peaks, fs = 360) {
  * HF: 0.15–0.40 Hz (tono parasimpático / respiratorio)
  *
  * Los intervalos RR se tratan como señal muestreada a ~4 Hz (aprox.).
+ *
+ * LIMITACIÓN CONOCIDA: si el RR es casi perfectamente constante (sin
+ * variabilidad natural — solo posible con señal sintética idealizada, no
+ * observado en MIT-BIH real ni con el Arduino físico), toda la potencia
+ * espectral cae en el bin DC (0 Hz), fuera de las bandas LF/HF, y el ratio
+ * resultante deja de ser representativo. No mitigado porque no ocurre con
+ * datos reales (ver integración del clasificador SVM en classifier.js).
  */
 function computeLFHF(rrIntervals) {
   const fsRR = 4; // Hz

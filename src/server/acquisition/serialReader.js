@@ -17,7 +17,7 @@ let _calibrating  = true;
 let _calMin       = 1023;
 let _calMax       = 0;
 let _calSamples   = 0;
-const CAL_SAMPLES = 360 * 5; // 5 segundos a 360 Hz
+const CAL_SAMPLES = parseInt(process.env.SAMPLE_RATE || '360', 10) * 5; // 5 segundos
 
 function calibrate(raw) {
   if (!_calibrating) return;

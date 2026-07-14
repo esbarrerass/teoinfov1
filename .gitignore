@@ -430,3 +430,9 @@ FodyWeavers.xsd
 
 CLAUDE.md
 .DS_Store
+node_modules/
+
+# Dataset MIT-BIH (descargado manualmente desde Kaggle, ~1.1GB — ver README
+# para instrucciones de descarga). El modelo entrenado (training/model.json)
+# sí se versiona: es liviano y evita tener que re-entrenar para usar el proyecto.
+src/server/data/mitbih/

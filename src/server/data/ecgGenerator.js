@@ -52,15 +52,27 @@ function generateECG(durationSec = 10, heartRate = null, type = 'normal') {
   const baseRR = (60 / hr) * FS;
   let t = Math.round(baseRR / 2);
 
+  // Deriva de baja frecuencia (paseo aleatorio acotado) que imita la
+  // variabilidad respiratoria real (~0.25 Hz) en vez de ruido blanco por
+  // latido: el HRV fisiológico tiene memoria temporal entre latidos
+  // consecutivos, no es independiente latido a latido.
+  let rrDrift = 0;
+
   while (t < nSamples - Math.round(baseRR)) {
     const isPVC = type === 'arrhythmia' && Math.random() < 0.12;
     addBeat(signal, t, FS, isPVC ? 'pvc' : 'normal');
     rPeaks.push(t);
 
-    // Para arritmia, variar el intervalo RR aleatoriamente ±30%
-    const jitter = type === 'arrhythmia'
-      ? baseRR * (0.7 + Math.random() * 0.6)
-      : baseRR * (0.98 + Math.random() * 0.04);
+    let jitter;
+    if (type === 'arrhythmia') {
+      // Arritmia: variar el intervalo RR aleatoriamente ±30%, sin memoria temporal
+      jitter = baseRR * (0.7 + Math.random() * 0.6);
+    } else {
+      rrDrift += (Math.random() - 0.5) * 0.006;
+      rrDrift = Math.max(-0.03, Math.min(0.03, rrDrift));
+      const smallNoise = (Math.random() - 0.5) * 0.01;
+      jitter = baseRR * (1 + rrDrift + smallNoise);
+    }
     t = Math.round(t + jitter);
   }
 

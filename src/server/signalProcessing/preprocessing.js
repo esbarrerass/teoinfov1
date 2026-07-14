@@ -77,9 +77,13 @@ function applyNotch(signal, fn, fs, bw = 4) {
  * @returns {{ raw: number[], filtered: number[] }}
  */
 function preprocess(rawSignal, fs = 360) {
+  const nyquist = fs / 2;
+  const lowPassFc = Math.min(40, nyquist * 0.9);
+  const notchFn = Math.min(60, nyquist * 0.8);
+
   let filtered = applyHighPass(rawSignal, 0.5, fs);
-  filtered = applyLowPass(filtered, 40, fs);
-  filtered = applyNotch(filtered, 60, fs, 4);
+  filtered = applyLowPass(filtered, lowPassFc, fs);
+  if (notchFn > 2) filtered = applyNotch(filtered, notchFn, fs, 4);
   return { raw: rawSignal, filtered };
 }
 
