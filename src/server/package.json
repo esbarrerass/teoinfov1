@@ -1,7 +1,7 @@
 {
-  "name": "teoinfo-server",
+  "name": "systole-server",
   "version": "1.0.0",
-  "description": "ECG arrhythmia classification server - Teoría de la Información UNAL",
+  "description": "Systole — servidor de medición y clasificación de ECG",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

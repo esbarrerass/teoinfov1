@@ -1,0 +1,262 @@
+.measurement-page {
+  min-height: 100dvh;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+.measurement-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 0;
+}
+
+.measurement-back-link {
+  font-size: 0.9rem;
+  color: #8b949e;
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 160ms ease;
+}
+
+.measurement-back-link:hover {
+  color: #c9d1d9;
+}
+
+.measurement-back-link:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.measurement-reopen-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #58a6ff;
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.measurement-reopen-btn:hover {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.measurement-main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+  transition: margin-right 320ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (min-width: 900px) {
+  .measurement-main-shifted {
+    margin-right: 380px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measurement-main {
+    transition: none;
+  }
+}
+
+.measurement-intro {
+  text-align: center;
+  max-width: 480px;
+  margin: 2rem auto 0;
+}
+
+.measurement-intro h1 {
+  font-size: 1.75rem;
+  color: #f0f6fc;
+  margin: 0 0 1rem;
+}
+
+.measurement-intro p {
+  color: #8b949e;
+  line-height: 1.6;
+  margin: 0 0 2rem;
+}
+
+.measurement-start-btn {
+  background: #58a6ff;
+  color: #0d1117;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.85rem 1.75rem;
+  border-radius: 8px;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background 160ms ease;
+}
+
+.measurement-start-btn:hover {
+  background: #79b8ff;
+}
+
+.measurement-start-btn:active {
+  transform: scale(0.97);
+}
+
+.measurement-start-btn:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measurement-start-btn {
+    transition: background 160ms ease;
+  }
+}
+
+.measurement-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+.measurement-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #8b949e;
+}
+
+.measurement-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.measurement-dot-on {
+  background: #3fb950;
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.2);
+}
+
+.measurement-dot-off {
+  background: #f85149;
+}
+
+.measurement-quality-tag {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  margin-left: 0.25rem;
+}
+
+.measurement-quality-tag.quality-good {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.measurement-quality-tag.quality-fair {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
+.measurement-quality-tag.quality-poor {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+.measurement-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.measurement-countdown-ring {
+  position: relative;
+  width: 160px;
+  height: 160px;
+}
+
+.measurement-countdown-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.measurement-countdown-track {
+  fill: none;
+  stroke: #21262d;
+  stroke-width: 6;
+}
+
+.measurement-countdown-fill {
+  fill: none;
+  stroke: #58a6ff;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measurement-countdown-fill {
+    transition: none;
+  }
+}
+
+.measurement-countdown-number {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #f0f6fc;
+  font-variant-numeric: tabular-nums;
+}
+
+.measurement-countdown-label {
+  color: #8b949e;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.measurement-done {
+  text-align: center;
+}
+
+.measurement-done-enter {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: measurement-done-enter 220ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+@keyframes measurement-done-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .measurement-done-enter {
+    animation: measurement-done-fade 220ms ease forwards;
+  }
+}
+
+@keyframes measurement-done-fade {
+  to { opacity: 1; }
+}
+
+.measurement-done p {
+  color: #3fb950;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.measurement-active .ecg-chart {
+  width: 100%;
+}

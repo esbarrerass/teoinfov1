@@ -1,7 +1,7 @@
 {
-  "name": "teoinfo-app",
+  "name": "systole-app",
   "version": "1.0.0",
-  "description": "ECG TeoInfo — frontend React (visor en tiempo real)",
+  "description": "Systole — frontend React (medición y resultados de ECG)",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.1",
     "recharts": "^2.12.7"
   },
   "devDependencies": {

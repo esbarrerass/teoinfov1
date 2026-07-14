@@ -13,11 +13,6 @@ const { preprocess } = require('./signalProcessing/preprocessing');
 const { analyzeSignal } = require('./signalProcessing/fourierAnalysis');
 const { detectPeaks } = require('./signalProcessing/panTompkins');
 const { extractFeatures } = require('./signalProcessing/featureExtraction');
-const { beatEntropy } = require('./informationTheory/entropy');
-const { computeCapacity } = require('./informationTheory/channelCapacity');
-const { huffmanCode } = require('./informationTheory/sourceCoding');
-const { computeCRC8, verifyCRC8, introduceErrors } = require('./errorCorrection/crc8');
-const { encode: hammingEncode, decode: hammingDecode } = require('./errorCorrection/hamming');
 const { classify } = require('./classification/classifier');
 
 const PORT = parseInt(process.env.HTTP_PORT || '4000', 10);
@@ -61,9 +56,6 @@ function runPipeline() {
   state.lastFeatures = features;
   state.lastFourier = fourier;
 
-  const infoTheory = buildInfoTheory(features, fourier);
-  const errorStats = buildErrorStats();
-
   return {
     raw: raw.slice(-FS),         // último segundo de señal cruda
     filtered: filtered.slice(-FS),
@@ -76,44 +68,6 @@ function runPipeline() {
       filteredSpectrum: fourier.filteredSpectrum.slice(0, 80),
       snrRaw: fourier.snrRaw,
       snrFiltered: fourier.snrFiltered
-    },
-    infoTheory,
-    errorStats
-  };
-}
-
-function buildInfoTheory(features, fourier) {
-  const entropy = beatEntropy(state.classificationHistory);
-  const capacity = computeCapacity(fourier.snrRaw, fourier.snrFiltered, FS);
-  const huffman = features && features.valid
-    ? huffmanCode(features.rrIntervals)
-    : { avgCodeLength: 0, entropy: 0, redundancy: 0, codes: {} };
-
-  return { entropy, capacity, huffman };
-}
-
-function buildErrorStats() {
-  // Demo de CRC y Hamming con datos simulados
-  const testData = [0xAB, 0xCD];
-  const crc = computeCRC8(testData);
-  const corruptedData = introduceErrors(testData, 0.05);
-  const crcValid = verifyCRC8(testData, crc);
-  const crcCorrupted = verifyCRC8(corruptedData, crc);
-
-  const hammingInput = [1, 0, 1, 1];
-  const encoded = hammingEncode(hammingInput);
-  const errorBit = [...encoded]; errorBit[2] ^= 1; // introducir 1 error
-  const decoded = hammingDecode(errorBit);
-
-  return {
-    crc: { value: crc, valid: crcValid, corruptedValid: crcCorrupted },
-    hamming: {
-      original: hammingInput,
-      encoded,
-      withError: errorBit,
-      decoded: decoded.data,
-      corrected: decoded.corrected,
-      syndrome: decoded.syndrome
     }
   };
 }
@@ -177,29 +131,13 @@ app.post('/api/ecg-type', (req, res) => {
   res.json({ ok: true, type });
 });
 
-app.post('/api/error-correction/simulate', (req, res) => {
-  const { ber = 0.05 } = req.body;
-  const data = [0xAB, 0xCD, 0xEF];
-  const crc = computeCRC8(data);
-  const corrupted = introduceErrors(data, ber);
-  const valid = verifyCRC8(corrupted, crc);
-
-  const bits = [1, 0, 1, 1];
-  const encoded = hammingEncode(bits);
-  const corruptedBits = [...encoded];
-  if (Math.random() < ber * 8) corruptedBits[Math.floor(Math.random() * 7)] ^= 1;
-  const decoded = hammingDecode(corruptedBits);
-
-  res.json({ ber, crc: { original: data, corrupted, expectedCRC: crc, valid }, hamming: { bits, encoded, corruptedBits, decoded } });
-});
-
 // ─── Página de prueba sin React ───────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>ECG TeoInfo — Test</title>
+  <title>Systole — Test</title>
   <style>
     body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 2rem; }
     h1 { color: #58a6ff; }
@@ -213,7 +151,7 @@ app.get('/', (req, res) => {
   </style>
 </head>
 <body>
-  <h1>ECG TeoInfo — Servidor de Prueba</h1>
+  <h1>Systole — Servidor de Prueba</h1>
   <p id="status">Conectando...</p>
   <div>
     <button onclick="setType('normal')">Normal</button>
@@ -259,9 +197,7 @@ app.get('/', (req, res) => {
         sdnn: d.features?.sdnn,
         rmssd: d.features?.rmssd,
         snrRaw: d.fourier?.snrRaw,
-        snrFiltered: d.fourier?.snrFiltered,
-        entropy: d.infoTheory?.entropy?.entropy,
-        capacityFiltered: d.infoTheory?.capacity?.capacityFiltered
+        snrFiltered: d.fourier?.snrFiltered
       }, null, 2);
     };
 
@@ -277,7 +213,7 @@ app.get('/', (req, res) => {
 startReading();
 
 server.listen(PORT, () => {
-  console.log(`\n🫀  Servidor ECG TeoInfo corriendo en http://localhost:${PORT}`);
+  console.log(`\n🫀  Servidor Systole corriendo en http://localhost:${PORT}`);
   console.log(`   WebSocket: ws://localhost:${PORT}/ws`);
   console.log(`   Modo: ${process.env.DEMO_MODE !== 'false' ? 'DEMO (ECG sintético)' : 'Arduino'}`);
   console.log(`   API: GET /api/status  |  GET /api/snapshot  |  POST /api/ecg-type\n`);
