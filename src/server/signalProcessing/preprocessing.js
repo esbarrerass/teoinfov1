@@ -1,9 +1,7 @@
 'use strict';
 
 /**
- * Filtro IIR pasa-altas de 1er orden (Butterworth).
- * Elimina deriva de línea base por debajo de fc.
- * Ecuación: y[n] = α·y[n-1] + α·(x[n] - x[n-1])
+y[n] = α·y[n-1] + α·(x[n] - x[n-1])
  */
 function applyHighPass(signal, fc, fs) {
   const K = Math.tan(Math.PI * fc / fs);
@@ -20,9 +18,7 @@ function applyHighPass(signal, fc, fs) {
 }
 
 /**
- * Filtro IIR pasa-bajas de 1er orden (Butterworth).
- * Atenúa frecuencias de ruido por encima de fc.
- * Ecuación: y[n] = b0·x[n] + b1·x[n-1] - a1·y[n-1]
+y[n] = b0·x[n] + b1·x[n-1] - a1·y[n-1]
  */
 function applyLowPass(signal, fc, fs) {
   const K = Math.tan(Math.PI * fc / fs);
@@ -39,8 +35,6 @@ function applyLowPass(signal, fc, fs) {
 }
 
 /**
- * Filtro IIR notch de 2do orden.
- * Suprime interferencia de la red eléctrica a fn Hz.
  * H(z): b = [1, -2cos(ω0), 1] / a = [1, -2r·cos(ω0), r²]
  */
 function applyNotch(signal, fn, fs, bw = 4) {
@@ -71,14 +65,7 @@ function applyNotch(signal, fn, fs, bw = 4) {
  * 1. HPF 0.5 Hz  → elimina deriva de línea base
  * 2. LPF 40 Hz   → elimina ruido EMG muscular
  * 3. Notch 60 Hz → elimina interferencia de red eléctrica
- *
- * NOTA: se probó subir el corte del pasa-altas (hasta 1 Hz, 1er y 2do orden)
- * para eliminar una "joroba" ancha visible tras cada QRS. Análisis espectral
- * (FFT sobre señal cruda real) mostró que la energía dominante de esa joroba
- * cae en ~1.1-1.2 Hz, coincidiendo con la frecuencia cardíaca fundamental — es
- * decir, es la propia onda T/repolarización tal como la capta este sensor de
- * una derivación, no ruido de baja frecuencia separable. Subir el corte ahí
- * solo distorsiona la señal útil sin eliminar nada ajeno. Se mantiene 0.5 Hz.
+
  *
  * @param {number[]} rawSignal - señal ECG cruda
  * @param {number}   fs        - frecuencia de muestreo (Hz)
@@ -87,10 +74,6 @@ function applyNotch(signal, fn, fs, bw = 4) {
 function preprocess(rawSignal, fs = 360) {
   const nyquist = fs / 2;
   const lowPassFc = Math.min(40, nyquist * 0.9);
-  // El notch de 60 Hz (interferencia de red) solo tiene sentido si esa frecuencia
-  // cae claramente dentro de la banda útil. A fs bajas (p. ej. 49 Hz, Nyquist 24.5 Hz)
-  // 60 Hz ni siquiera es representable — omitir el notch en vez de aplicarlo a una
-  // frecuencia arbitraria que distorsionaría el QRS.
   const notchFn = 60;
 
   let filtered = applyHighPass(rawSignal, 0.5, fs);

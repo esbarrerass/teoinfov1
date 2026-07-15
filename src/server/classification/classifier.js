@@ -12,25 +12,7 @@
  *      para dar la sub-etiqueta específica (Bradicardia/Taquicardia/Arritmia),
  *      ya que el SVM es binario y el resto del sistema (UI, entropía) espera
  *      las 4 clases.
- *
- * Si el modelo entrenado no está disponible (training/model.json ausente),
- * cae a clasificación por umbrales pura (comportamiento previo).
- *
- * lfhf se excluyó del vector de entrenamiento: se calcula por FFT sobre
- * ~15-20 intervalos RR (ventana de 15s) y su distribución en MIT-BIH es
- * extremadamente estrecha — con datos reales del Arduino, personas con
- * FC/HRV normales pero lfhf fuera de ese rango angosto eran marcadas como
- * "anormal" solo por ese valor. Ver training/trainClassifier.js.
- *
- * LIMITACIÓN CONOCIDA — modo DEMO (data/ecgGenerator.js): panTompkins.js
- * comete errores ocasionales de detección (~1 de cada 6 latidos,
- * desplazamiento de decenas de ms) con la morfología sintética de
- * ecgGenerator.js, lo que infla el SDNN medido y hace que el ECG "normal"
- * sintético se clasifique como anormal. No afecta al Arduino real (señal
- * fisiológica real, sin ese patrón de error de detección) ni a la validación
- * contra MIT-BIH real. No corregido: requiere ajustar panTompkins.js o la
- * morfología sintética, fuera del alcance de esta integración.
- */
+ * */
 
 const path = require('path');
 const fs = require('fs');
