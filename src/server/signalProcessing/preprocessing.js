@@ -72,6 +72,14 @@ function applyNotch(signal, fn, fs, bw = 4) {
  * 2. LPF 40 Hz   → elimina ruido EMG muscular
  * 3. Notch 60 Hz → elimina interferencia de red eléctrica
  *
+ * NOTA: se probó subir el corte del pasa-altas (hasta 1 Hz, 1er y 2do orden)
+ * para eliminar una "joroba" ancha visible tras cada QRS. Análisis espectral
+ * (FFT sobre señal cruda real) mostró que la energía dominante de esa joroba
+ * cae en ~1.1-1.2 Hz, coincidiendo con la frecuencia cardíaca fundamental — es
+ * decir, es la propia onda T/repolarización tal como la capta este sensor de
+ * una derivación, no ruido de baja frecuencia separable. Subir el corte ahí
+ * solo distorsiona la señal útil sin eliminar nada ajeno. Se mantiene 0.5 Hz.
+ *
  * @param {number[]} rawSignal - señal ECG cruda
  * @param {number}   fs        - frecuencia de muestreo (Hz)
  * @returns {{ raw: number[], filtered: number[] }}
@@ -79,11 +87,15 @@ function applyNotch(signal, fn, fs, bw = 4) {
 function preprocess(rawSignal, fs = 360) {
   const nyquist = fs / 2;
   const lowPassFc = Math.min(40, nyquist * 0.9);
-  const notchFn = Math.min(60, nyquist * 0.8);
+  // El notch de 60 Hz (interferencia de red) solo tiene sentido si esa frecuencia
+  // cae claramente dentro de la banda útil. A fs bajas (p. ej. 49 Hz, Nyquist 24.5 Hz)
+  // 60 Hz ni siquiera es representable — omitir el notch en vez de aplicarlo a una
+  // frecuencia arbitraria que distorsionaría el QRS.
+  const notchFn = 60;
 
   let filtered = applyHighPass(rawSignal, 0.5, fs);
   filtered = applyLowPass(filtered, lowPassFc, fs);
-  if (notchFn > 2) filtered = applyNotch(filtered, notchFn, fs, 4);
+  if (notchFn < nyquist * 0.9) filtered = applyNotch(filtered, notchFn, fs, 4);
   return { raw: rawSignal, filtered };
 }
 

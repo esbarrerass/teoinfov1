@@ -6,6 +6,7 @@ export default function LandingPage() {
     <div className="landing">
       <header className="landing-nav">
         <span className="landing-logo">Systole</span>
+        <Link to="/proceso" className="landing-nav-link">Ver pipeline en vivo</Link>
       </header>
 
       <main className="landing-hero">
@@ -28,7 +29,7 @@ export default function LandingPage() {
         <dl className="landing-proof">
           <div className="landing-proof-item">
             <dt>Exactitud del modelo</dt>
-            <dd>95.1%</dd>
+            <dd>92.4%</dd>
           </div>
           <div className="landing-proof-item">
             <dt>Latidos de entrenamiento</dt>

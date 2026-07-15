@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const path = require('path');
 
-const { startReading, stopReading, getBuffer, setECGType } = require('./acquisition/serialReader');
+const { startReading, stopReading, getBuffer, getTotalSamples, setECGType } = require('./acquisition/serialReader');
 const { preprocess } = require('./signalProcessing/preprocessing');
 const { analyzeSignal } = require('./signalProcessing/fourierAnalysis');
 const { detectPeaks } = require('./signalProcessing/panTompkins');
@@ -31,8 +31,27 @@ const state = {
   classificationHistory: [],
   lastFeatures: null,
   lastFourier: null,
-  ecgType: 'normal'
+  ecgType: 'normal',
+  smoothingHistory: { sdnn: [], rmssd: [] }
 };
+
+// Nº de ventanas recientes sobre las que se promedian sdnn/rmssd antes de
+// clasificar. A fs bajas (~49 Hz) cada RR solo puede tomar valores múltiplos de
+// ~20ms (1/fs) — ese jitter de cuantización basta para que 1-2 intervalos de la
+// ventana de 15s empujen momentáneamente el SDNN por encima del umbral de
+// decisión sin que haya ningún cambio fisiológico real. Promediar varias
+// ventanas consecutivas estabiliza lo que ve el clasificador sin tocar el
+// cálculo de featureExtraction.js.
+const CLASSIFIER_SMOOTHING_WINDOWS = 3;
+
+function smoothedValue(key, rawValue) {
+  const history = state.smoothingHistory[key];
+  if (rawValue != null) {
+    history.push(rawValue);
+    if (history.length > CLASSIFIER_SMOOTHING_WINDOWS) history.shift();
+  }
+  return history.length > 0 ? history.reduce((a, b) => a + b, 0) / history.length : rawValue;
+}
 
 // ─── Pipeline de procesamiento ────────────────────────────────────────────────
 function runPipeline() {
@@ -46,7 +65,16 @@ function runPipeline() {
   const fourier = analyzeSignal(raw, filtered, FS);
   const peaks = detectPeaks(filtered, FS);
   const features = extractFeatures(peaks, FS);
-  const result = classify(features);
+
+  const smoothedFeatures = features.valid
+    ? {
+        ...features,
+        sdnn: smoothedValue('sdnn', features.sdnn),
+        rmssd: smoothedValue('rmssd', features.rmssd)
+      }
+    : features;
+
+  const result = classify(smoothedFeatures);
 
   if (result.label && result.label !== 'Sin datos') {
     state.classificationHistory.push(result.label);
@@ -72,19 +100,60 @@ function runPipeline() {
   };
 }
 
+// Contexto extra (antes del tramo nuevo) que se incluye al filtrar cada chunk
+// de streaming, para que los filtros IIR no arranquen con transitorio en cada
+// envío — se descarta antes de mandar, solo se usa para "calentar" el filtro.
+const STREAM_FILTER_CONTEXT = 200;
+
+/**
+ * Señal cruda + filtrada muestra por muestra, solo con las muestras nuevas
+ * desde el último envío — para que el gráfico en vivo se sienta tan inmediato
+ * como leer el puerto serial directo (p. ej. Processing), no en bloques de 1s
+ * cada 250ms como hacía antes runPipeline().
+ */
+function getNewSamplesChunk(lastTotal) {
+  const currentTotal = getTotalSamples();
+  const newCount = currentTotal - lastTotal;
+  if (newCount <= 0) return { chunk: null, total: currentTotal };
+
+  const withContext = getBuffer(newCount + STREAM_FILTER_CONTEXT);
+  const { filtered } = preprocess(withContext, FS);
+
+  return {
+    chunk: {
+      raw: withContext.slice(-newCount),
+      filtered: filtered.slice(-newCount)
+    },
+    total: currentTotal
+  };
+}
+
 // ─── WebSocket ────────────────────────────────────────────────────────────────
 wss.on('connection', (ws, req) => {
   console.log(`[WS] Cliente conectado: ${req.socket.remoteAddress}`);
 
-  const interval = setInterval(() => {
+  let lastStreamedTotal = getTotalSamples();
+
+  const streamInterval = setInterval(() => {
+    if (ws.readyState !== ws.OPEN) return;
+    try {
+      const { chunk, total } = getNewSamplesChunk(lastStreamedTotal);
+      lastStreamedTotal = total;
+      if (chunk) ws.send(JSON.stringify({ type: 'signal', ...chunk }));
+    } catch (err) {
+      console.error('[WS] Error en streaming:', err.message);
+    }
+  }, 40); // ~25 envíos/seg — se siente inmediato sin saturar el socket
+
+  const analysisInterval = setInterval(() => {
     if (ws.readyState !== ws.OPEN) return;
     try {
       const data = runPipeline();
-      if (data) ws.send(JSON.stringify(data));
+      if (data) ws.send(JSON.stringify({ type: 'analysis', ...data }));
     } catch (err) {
       console.error('[WS] Error en pipeline:', err.message);
     }
-  }, 250); // 4 actualizaciones por segundo
+  }, 250); // clasificación/features, no necesita ser tan frecuente
 
   ws.on('message', (msg) => {
     try {
@@ -99,7 +168,8 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    clearInterval(interval);
+    clearInterval(streamInterval);
+    clearInterval(analysisInterval);
     console.log('[WS] Cliente desconectado');
   });
 });

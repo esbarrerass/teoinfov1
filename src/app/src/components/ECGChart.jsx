@@ -9,9 +9,9 @@ export default function ECGChart({ signal }) {
         <LineChart data={chartData} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
           <CartesianGrid stroke="#21262d" strokeDasharray="3 3" />
           <XAxis dataKey="i" hide />
-          <YAxis domain={[-1, 1]} stroke="#8b949e" width={40} />
+          <YAxis domain={[-1.5, 1.5]} stroke="#8b949e" width={40} />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="v"
             stroke="#3fb950"
             dot={false}

@@ -4,6 +4,11 @@
  * Detector de picos R basado en el algoritmo Pan-Tompkins (1985).
  * Etapas: diferenciación → cuadrado → integración por ventana móvil → umbral adaptativo
  *
+ * Requiere fs suficiente para que el QRS (≈80-100 ms) quede representado por
+ * varias muestras — con fs ≥ 150-200 Hz la derivada distingue bien la pendiente
+ * abrupta del QRS de la más suave de la onda T. Diseñado y validado para el
+ * hardware actual (Arduino a ~200 Hz vía micros(), ver arduino/systole_ad8232).
+ *
  * Referencia: J. Pan & W. J. Tompkins, IEEE Trans. Biomed. Eng., vol. BME-32, 1985.
  */
 
@@ -41,13 +46,18 @@ function movingWindowIntegration(signal, windowSamples) {
 function detectPeaks(signal, fs = 360) {
   const diff = differentiate(signal);
   const squared = squareSignal(diff);
-  const windowSamples = Math.round(0.150 * fs); // ventana de 150 ms
+  const windowSamples = Math.max(3, Math.round(0.150 * fs)); // ventana de 150 ms
   const integrated = movingWindowIntegration(squared, windowSamples);
 
-  // Umbral adaptativo: 50% del máximo de la señal integrada
   const maxVal = Math.max(...integrated);
-  const threshold = 0.3 * maxVal;
-  const minDistance = Math.round(0.200 * fs); // refractario de 200 ms
+  if (maxVal === 0) return [];
+
+  // Umbral alto (65% del máximo) para no confundir la onda T con el QRS: la
+  // derivada de la onda T es más suave que la del QRS pero, en señales de
+  // buena amplitud, aún puede acercarse a un umbral bajo/medio.
+  const threshold = 0.65 * maxVal;
+  // Refractario de 300 ms (techo ~200 lpm), estándar para evitar T-wave oversensing.
+  const minDistance = Math.round(0.300 * fs);
 
   const peaks = [];
   let lastPeak = -minDistance;
@@ -60,7 +70,7 @@ function detectPeaks(signal, fs = 360) {
       i - lastPeak >= minDistance
     ) {
       // Ajustar al pico real de la señal original en una ventana de ±30ms
-      const window = Math.round(0.030 * fs);
+      const window = Math.max(1, Math.round(0.030 * fs));
       let rIdx = i;
       let rMax = signal[i];
       for (let j = Math.max(0, i - window); j <= Math.min(signal.length - 1, i + window); j++) {

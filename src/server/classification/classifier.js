@@ -3,7 +3,8 @@
 /**
  * Clasificador de arritmias en dos etapas:
  *   1. SVM (kernel RBF, libsvm) entrenado sobre MIT-BIH Arrhythmia Database,
- *      decide Normal vs. Anormal sobre [meanRR, sdnn, rmssd, fc, lfhf].
+ *      decide Normal vs. Anormal sobre [meanRR, sdnn, rmssd, fc] (ver
+ *      training/model.json → featureKeys).
  *      Métricas sobre 12 registros de test nunca vistos en entrenamiento:
  *      accuracy 95.1%, sensibilidad 82.6%, especificidad 98.9%, F1 88.6%
  *      (ver training/trainClassifier.js y training/model.json).
@@ -15,16 +16,20 @@
  * Si el modelo entrenado no está disponible (training/model.json ausente),
  * cae a clasificación por umbrales pura (comportamiento previo).
  *
- * LIMITACIÓN CONOCIDA — modo DEMO (data/ecgGenerator.js): el SVM fue
- * entrenado con HRV real de MIT-BIH y es sensible a SDNN/lfhf fuera de su
- * rango de entrenamiento. panTompkins.js comete errores ocasionales de
- * detección (~1 de cada 6 latidos, desplazamiento de decenas de ms) con la
- * morfología sintética de ecgGenerator.js, lo que infla el SDNN medido y
- * hace que el ECG "normal" sintético se clasifique como anormal. No afecta
- * al Arduino real (señal fisiológica real, sin ese patrón de error de
- * detección) ni a la validación contra MIT-BIH real. No corregido: requiere
- * ajustar panTompkins.js o la morfología sintética, fuera del alcance de
- * esta integración.
+ * lfhf se excluyó del vector de entrenamiento: se calcula por FFT sobre
+ * ~15-20 intervalos RR (ventana de 15s) y su distribución en MIT-BIH es
+ * extremadamente estrecha — con datos reales del Arduino, personas con
+ * FC/HRV normales pero lfhf fuera de ese rango angosto eran marcadas como
+ * "anormal" solo por ese valor. Ver training/trainClassifier.js.
+ *
+ * LIMITACIÓN CONOCIDA — modo DEMO (data/ecgGenerator.js): panTompkins.js
+ * comete errores ocasionales de detección (~1 de cada 6 latidos,
+ * desplazamiento de decenas de ms) con la morfología sintética de
+ * ecgGenerator.js, lo que infla el SDNN medido y hace que el ECG "normal"
+ * sintético se clasifique como anormal. No afecta al Arduino real (señal
+ * fisiológica real, sin ese patrón de error de detección) ni a la validación
+ * contra MIT-BIH real. No corregido: requiere ajustar panTompkins.js o la
+ * morfología sintética, fuera del alcance de esta integración.
  */
 
 const path = require('path');
@@ -39,9 +44,8 @@ const THRESHOLDS = {
 };
 
 const MODEL_PATH = path.join(__dirname, '../training/model.json');
-const FEATURE_KEYS = ['meanRR', 'sdnn', 'rmssd', 'fc', 'lfhf'];
 
-let _svmModel = null; // { svm, normalization, testMetrics } | undefined si no hay modelo
+let _svmModel = null; // { svm, normalization, testMetrics, featureKeys } | undefined si no hay modelo
 
 function loadSvmModel() {
   if (_svmModel !== null) return _svmModel;
@@ -53,13 +57,14 @@ function loadSvmModel() {
   _svmModel = {
     svm: SVM.load(saved.svm),
     normalization: saved.normalization,
-    testMetrics: saved.testMetrics
+    testMetrics: saved.testMetrics,
+    featureKeys: saved.featureKeys
   };
   return _svmModel;
 }
 
-function toFeatureVector(features) {
-  return FEATURE_KEYS.map((k) => (features[k] == null ? 0 : features[k]));
+function toFeatureVector(features, featureKeys) {
+  return featureKeys.map((k) => (features[k] == null ? 0 : features[k]));
 }
 
 function normalizeVector(vector, { mean, std }) {
@@ -152,7 +157,10 @@ function classify(features) {
     return { ...classifyByThresholds(features), source: 'umbral' };
   }
 
-  const vector = normalizeVector(toFeatureVector(features), model.normalization);
+  const rawVector = toFeatureVector(features, model.featureKeys);
+  const vector = normalizeVector(rawVector, model.normalization);
+  const featureVector = { keys: model.featureKeys, raw: rawVector, normalized: vector };
+
   const [isAbnormalRaw] = model.svm.predict([vector]);
   const isAbnormal = isAbnormalRaw === 1;
 
@@ -163,7 +171,8 @@ function classify(features) {
       isAbnormal: false,
       confidence: model.testMetrics.specificity,
       reason: `FC = ${fc} lpm, SDNN = ${sdnn} ms (SVM: normal)`,
-      source: 'svm'
+      source: 'svm',
+      featureVector
     };
   }
 
@@ -173,7 +182,8 @@ function classify(features) {
     isAbnormal: true,
     confidence: model.testMetrics.sensitivity,
     reason: `${reason} (SVM: anormal)`,
-    source: 'svm'
+    source: 'svm',
+    featureVector
   };
 }
 

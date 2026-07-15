@@ -2,8 +2,14 @@
 
 /**
  * Entrena un SVM binario (Normal=0 / Anormal=1) sobre ventanas de latidos de
- * MIT-BIH, usando el vector de características [meanRR, sdnn, rmssd, fc, lfhf]
- * ya definido en classifier.js (TODO histórico) y featureExtraction.js.
+ * MIT-BIH, usando el vector de características [meanRR, sdnn, rmssd, fc].
+ *
+ * NOTA: lfhf se excluyó del vector. Se calcula por FFT sobre ~15-20 intervalos
+ * RR (ventana de 15s) y su distribución en MIT-BIH es extremadamente estrecha
+ * (mean≈2.05, std≈0.165) — con datos reales del Arduino, personas con FC/HRV
+ * perfectamente normales pero con lfhf fuera de ese rango angosto eran
+ * clasificadas como "anormal" solo por ese valor, mientras meanRR/sdnn/rmssd/fc
+ * eran fisiológicamente normales. Ver classifier.js.
  *
  * Uso: node training/trainClassifier.js
  * Salida: training/model.json (soporte vectores del SVM + medias/desv. de normalización)
@@ -15,7 +21,7 @@ const path = require('path');
 const SVM = require('libsvm-js/asm');
 const { buildDataset, listRecords } = require('./prepareDataset');
 
-const FEATURE_KEYS = ['meanRR', 'sdnn', 'rmssd', 'fc', 'lfhf'];
+const FEATURE_KEYS = ['meanRR', 'sdnn', 'rmssd', 'fc'];
 const MODEL_PATH = path.join(__dirname, 'model.json');
 const TEST_FRACTION = 0.25;
 
